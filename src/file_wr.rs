@@ -27,7 +27,7 @@ fn write_any_data_column<'a, T, M>(
 ) -> std::io::Result<()>
 where
     T: Borrow<M>,
-    M: MapTrait<'a, String, Vec<f64>>,
+    M: MapTrait<'a, &'a str, Vec<f64>>,
     M: 'a,
 {
     create_dir_all(path)?;
@@ -39,7 +39,7 @@ where
             el.borrow()
                 .keys()
                 .into_iter()
-                .map(|v| v.as_str())
+                .map(|v| *v)
                 .collect::<Vec<&str>>()
                 .join(" ")
         )?;
@@ -72,7 +72,7 @@ where
 fn write_any_data_value(
     path: &str,
     file_path: &str,
-    data: &MAP<String, f64>,
+    data: &MAP<&str, f64>,
 ) -> std::io::Result<()> {
     create_dir_all(path)?;
     let mut buf = BufWriter::new(File::create_new(file_path)?);
@@ -233,9 +233,9 @@ impl FileWR<'_> {
     }
     pub fn backtest_write(
         &self,
-        data: &Vec<MAP_LINK<String, Vec<f64>>>,
-        stat_columns: &MAP<String, Vec<f64>>,
-        stat_values: &MAP<String, f64>,
+        data: &Vec<MAP_LINK<&str, Vec<f64>>>,
+        stat_columns: &MAP<&str, Vec<f64>>,
+        stat_values: &MAP<&str, f64>,
         symbol: &str,
         time: u64,
     ) -> Result<(), Box<dyn Error>> {
@@ -255,7 +255,7 @@ impl FileWR<'_> {
                 &format!("{dir}/stat_columns.dat"),
                 &[stat_columns],
             )?;
-            write_any_data_value(&dir, &format!("{dir}/stat_values.dat",), &stat_values)?;
+            write_any_data_value(&dir, &format!("{dir}/stat_values.dat",), stat_values)?;
         }
         Ok(())
     }
@@ -315,6 +315,14 @@ impl FileWR<'_> {
     ) {
         self.backtest(dir).unwrap_or(or)
     }
+    // pub fn backtests_write(
+    //     &self,
+    //     data: &MAP<String, Vec<MAP_LINK<&str, Vec<f64>>>>,
+    //     stat_columns: &<MAP<&str, Vec<f64>>>,
+    //     stat_values: &MAP<&str, f64>,
+    //     symbol: &str,
+    //     time: u64,
+    // )
     // train_model_write
     // train_model
     // train_model_or
@@ -363,18 +371,29 @@ mod tests {
     static LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
     static S_DF: LazyLock<SETTINGS> = LazyLock::new(|| Default::default());
     static F: LazyLock<FileWR> = LazyLock::new(|| FileWR::new(&S));
-    static STAT_DATA_AFTER_DATA: LazyLock<fn() -> (StatData, Pin<Box<AfterTradeData<'static>>>)> =
-        LazyLock::new(|| {
-            || {
-                let mut stat_collector = StatCollector::new("".to_string(), &S_DF.trade);
-                stat_collector.push(TradeCell::new(100., SRC_EL.clone(), SRC_EL1.clone()));
-                stat_collector.push(TradeCell::new(100., SRC_EL.clone(), SRC_EL1.clone()));
-                let stat_data = stat_collector.to_data();
-                let stat_data_vec = stat_data.to_vec();
-                let after_data = AfterTradeData::new(&S_DF, &stat_data_vec[0], &Default::default());
-                (stat_data, after_data)
-            }
-        });
+    static STAT_DATA_AFTER_DATA: LazyLock<
+        fn() -> (StatData<'static>, Pin<Box<AfterTradeData<'static>>>),
+    > = LazyLock::new(|| {
+        || {
+            let mut stat_collector = StatCollector::new("".to_string(), &S_DF.trade);
+            stat_collector.push(
+                TradeCell::new(100., SRC_EL.clone(), SRC_EL1.clone()),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            );
+            stat_collector.push(
+                TradeCell::new(100., SRC_EL.clone(), SRC_EL1.clone()),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            );
+            let stat_data = stat_collector.to_data();
+            let stat_data_vec = stat_data.to_vec();
+            let after_data = AfterTradeData::new(&S_DF, &stat_data_vec[0], &Default::default());
+            (stat_data, after_data)
+        }
+    });
 
     fn remove_dir_all_(dir: &str) -> Result<(), Box<dyn Error>> {
         if Path::new(dir).exists() {
