@@ -2,10 +2,10 @@ use std::borrow::Borrow;
 use std::error::Error;
 use std::fs::{self, File, copy, create_dir_all, remove_dir_all};
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bc_utils::other::transpose;
-use bc_utils_lg::structs::settings::SETTINGS_FILES_DIR;
+use bc_utils_lg::structs::settings::SETTINGS_FILES_PATH;
 use bc_utils_lg::types::maps::{MAP, MAP_LINK, MapTrait};
 use bincode::config::standard;
 use bincode::serde::{decode_from_slice, encode_to_vec};
@@ -87,10 +87,7 @@ fn parse_data_columns<'a>(
 ) -> Result<Vec<MAP<String, Vec<f64>>>, Box<dyn Error>> {
     splitted
         .into_iter()
-        .filter(|v| {
-            dbg!(v);
-            !v.is_empty() && *v != "\n"
-        })
+        .filter(|v| !v.is_empty() && *v != "\n")
         .map(|data| -> Result<MAP<String, Vec<f64>>, Box<dyn Error>> {
             transpose(
                 data.split("\n")
@@ -101,7 +98,7 @@ fn parse_data_columns<'a>(
             .into_iter()
             .map(|v| -> Result<(String, Vec<f64>), Box<dyn Error>> {
                 Ok((
-                    dbg!(v[0]).to_string(),
+                    v[0].to_string(),
                     v.into_iter()
                         .skip(1)
                         .map(|f| -> Result<f64, Box<dyn Error>> {
@@ -137,11 +134,11 @@ fn parse_data_values<'a>(
 }
 
 pub struct FileWR<'a> {
-    s: &'a SETTINGS_FILES_DIR,
+    s: &'a SETTINGS_FILES_PATH,
 }
 
 impl<'a> FileWR<'a> {
-    pub fn new(s: &'a SETTINGS_FILES_DIR) -> Self {
+    pub fn new(s: &'a SETTINGS_FILES_PATH) -> Self {
         Self { s }
     }
 }
@@ -210,7 +207,7 @@ impl FileWR<'_> {
     ) -> Result<(), Box<dyn Error>> {
         create_dir_all(dir)?;
         let path = format!("{dir}/{}", file_name);
-        if self.s.script_backtest.is_dir() {
+        if !self.s.script_backtest.exists() {
             let mut file = File::create_new(&path)?;
             writeln!(file, "{}", script)?;
         } else {
@@ -241,7 +238,7 @@ impl FileWR<'_> {
     ) -> Result<(), Box<dyn Error>> {
         let dir = get_backtest_dir(self.s.backtest.to_str().unwrap(), symbol, time);
         create_dir_all(&dir)?;
-        if !self.s.backtest.as_os_str().is_empty() {
+        if self.s.backtest.is_dir() {
             self.script_write(&dir, "script_backtest.plt", &BT_SCRIPT(symbol))?;
             self.script_write(
                 &dir,
@@ -329,17 +326,36 @@ impl FileWR<'_> {
 }
 
 impl FileWR<'_> {
+    pub fn clear(&self) -> Result<(), Box<dyn Error>> {
+        let path = Path::new("target/bc_constructor");
+        if path.exists() {
+            return Ok(remove_dir_all(&path)?);
+        }
+        Ok(())
+    }
     pub fn backtests_del(&self) -> Result<(), Box<dyn Error>> {
-        Ok(remove_dir_all(&self.s.backtest)?)
+        if self.s.backtest.exists() {
+            return Ok(remove_dir_all(&self.s.backtest)?);
+        }
+        Ok(())
     }
     pub fn src_del(&self) -> Result<(), Box<dyn Error>> {
-        Ok(remove_dir_all(&self.s.src)?)
+        if self.s.src.exists() {
+            return Ok(remove_dir_all(&self.s.src)?);
+        }
+        Ok(())
     }
     pub fn script_backtest_del(&self) -> Result<(), Box<dyn Error>> {
-        Ok(remove_dir_all(&self.s.script_backtest)?)
+        if self.s.script_backtest.exists() {
+            return Ok(remove_dir_all(&self.s.script_backtest)?);
+        }
+        Ok(())
     }
     pub fn script_stat_del(&self) -> Result<(), Box<dyn Error>> {
-        Ok(remove_dir_all(&self.s.script_stat)?)
+        if self.s.script_stat.exists() {
+            return Ok(remove_dir_all(&self.s.script_stat)?);
+        }
+        Ok(())
     }
 }
 
@@ -360,12 +376,11 @@ mod tests {
     use bc_utils_lg::structs::settings::SETTINGS;
     use bc_utils_lg::structs::trade::TradeCell;
 
-    static S: LazyLock<SETTINGS_FILES_DIR> = LazyLock::new(|| SETTINGS_FILES_DIR {
-        script_backtest: "test_dir/backtest".into(),
-        script_stat: "test_dir/backtest".into(),
+    static S: LazyLock<SETTINGS_FILES_PATH> = LazyLock::new(|| SETTINGS_FILES_PATH {
         backtest: "test_dir/backtest".into(),
         src: "test_dir/src".into(),
         train_model: "test_dir/train_model".into(),
+        ..Default::default()
     });
 
     static LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -425,7 +440,7 @@ mod tests {
         let _: Vec<Vec<f64>> = F.src()?;
         remove_dir_all(&S.src)?;
         assert!(!S.src.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        remove_dir_all_("test_dir")?;
         Ok(())
     }
 
@@ -438,7 +453,7 @@ mod tests {
         assert!(Path::new(&format!("{}/src_symbols.bin", S.src.to_str().unwrap())).exists());
         remove_dir_all(&S.src)?;
         assert!(!S.src.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        remove_dir_all_("test_dir")?;
         Ok(())
     }
 
@@ -451,7 +466,7 @@ mod tests {
         let _: MAP<String, Vec<Vec<f64>>> = F.src_symbols()?;
         remove_dir_all(&S.src)?;
         assert!(!S.src.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        remove_dir_all_("test_dir")?;
         Ok(())
     }
 
@@ -459,14 +474,16 @@ mod tests {
     fn script_write_res_1() -> Result<(), Box<dyn Error>> {
         let _l = LOCK.lock()?;
         remove_dir_all_("test_dir")?;
-        let dir = get_backtest_dir(S.script_backtest.to_str().unwrap(), "symbol", 1);
+        let dir = get_backtest_dir("test_dir/backtest", "symbol", 1);
         let file_name = "script_backtest.plt";
-        assert!(!S.script_backtest.exists());
+        let bind = format!("{dir}/{file_name}",);
+        let path = Path::new(&bind);
+        assert!(!path.exists());
         F.script_write(&dir, file_name, &BT_SCRIPT("symbol"))?;
-        assert!(Path::new(&format!("{dir}/{file_name}",)).exists());
-        remove_dir_all(&S.script_backtest)?;
-        assert!(!S.script_backtest.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        assert!(path.exists());
+        remove_dir_all(&dir)?;
+        assert!(!path.exists());
+        remove_dir_all("test_dir")?;
         Ok(())
     }
 
@@ -474,15 +491,16 @@ mod tests {
     fn script_res_1() -> Result<(), Box<dyn Error>> {
         let _l = LOCK.lock()?;
         remove_dir_all_("test_dir")?;
-        let dir = get_backtest_dir(S.script_backtest.to_str().unwrap(), "symbol", 1);
+        let dir = get_backtest_dir("test_dir/backtest", "symbol", 1);
         let file_name = "script_backtest.plt";
-        let path = format!("{dir}/{file_name}",);
+        let bind = format!("{dir}/{file_name}",);
+        let path = Path::new(&bind);
         F.script_write(&dir, file_name, &BT_SCRIPT("symbol"))?;
-        assert!(Path::new(&path).exists());
+        assert!(path.exists());
         let _: String = F.script(&path.into())?;
-        remove_dir_all(&S.script_backtest)?;
-        assert!(!S.script_backtest.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        remove_dir_all(&dir)?;
+        assert!(!path.exists());
+        remove_dir_all_("test_dir")?;
         Ok(())
     }
 
@@ -524,7 +542,7 @@ mod tests {
         );
         remove_dir_all(&S.backtest)?;
         assert!(!S.backtest.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        remove_dir_all_("test_dir")?;
         Ok(())
     }
 
@@ -549,7 +567,7 @@ mod tests {
         ) = F.backtest(&format!("{}/1/symbol", S.backtest.to_str().unwrap()).into())?;
         remove_dir_all(&S.backtest)?;
         assert!(!S.backtest.exists());
-        remove_dir_all(Path::new("test_dir"))?;
+        remove_dir_all_("test_dir")?;
         Ok(())
     }
 }
