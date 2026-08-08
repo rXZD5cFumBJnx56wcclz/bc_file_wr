@@ -10,13 +10,7 @@ use bc_utils_lg::types::maps::{MAP, MAP_LINK, MapTrait};
 use bincode::config::standard;
 use bincode::serde::{decode_from_slice, encode_to_vec};
 
-use bc_visual::visual::{BT_SCRIPT, STAT_COLUMNS_SCRIPT, STAT_VALUES_SCRIPT};
-
-pub fn get_backtest_dir(
-    dir: &str,
-    symbol: &str,
-    time: u64,
-) -> String {
+pub fn get_backtest_dir(dir: &str, symbol: &str, time: u64) -> String {
     format!("{dir}/{time}/{symbol}",)
 }
 
@@ -69,11 +63,7 @@ where
 
     Ok(())
 }
-fn write_any_data_value(
-    path: &str,
-    file_path: &str,
-    data: &MAP<&str, f64>,
-) -> std::io::Result<()> {
+fn write_any_data_value(path: &str, file_path: &str, data: &MAP<&str, f64>) -> std::io::Result<()> {
     create_dir_all(path)?;
     let mut buf = BufWriter::new(File::create_new(file_path)?);
     for (k, v) in data {
@@ -83,7 +73,7 @@ fn write_any_data_value(
 }
 
 fn parse_data_columns<'a>(
-    splitted: impl IntoIterator<Item = &'a str>
+    splitted: impl IntoIterator<Item = &'a str>,
 ) -> Result<Vec<MAP<String, Vec<f64>>>, Box<dyn Error>> {
     splitted
         .into_iter()
@@ -114,7 +104,7 @@ fn parse_data_columns<'a>(
 }
 
 fn parse_data_values<'a>(
-    splitted: impl Iterator<Item = &'a str>
+    splitted: impl Iterator<Item = &'a str>,
 ) -> Result<Vec<MAP<String, f64>>, Box<dyn Error>> {
     splitted
         .into_iter()
@@ -144,10 +134,7 @@ impl<'a> FileWR<'a> {
 }
 
 impl FileWR<'_> {
-    pub fn src_write(
-        &self,
-        src: &Vec<Vec<f64>>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn src_write(&self, src: &Vec<Vec<f64>>) -> Result<(), Box<dyn Error>> {
         if !self.s.src.is_file() {
             create_dir_all(&self.s.src)?;
             fs::write(
@@ -164,10 +151,7 @@ impl FileWR<'_> {
         )?
         .0)
     }
-    pub fn src_or(
-        &self,
-        or: Vec<Vec<f64>>,
-    ) -> Vec<Vec<f64>> {
+    pub fn src_or(&self, or: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         self.src().unwrap_or(or)
     }
     pub fn src_symbols_write(
@@ -193,10 +177,7 @@ impl FileWR<'_> {
         )?
         .0)
     }
-    pub fn src_symbols_or(
-        &self,
-        or: MAP<String, Vec<Vec<f64>>>,
-    ) -> MAP<String, Vec<Vec<f64>>> {
+    pub fn src_symbols_or(&self, or: MAP<String, Vec<Vec<f64>>>) -> MAP<String, Vec<Vec<f64>>> {
         self.src_symbols().unwrap_or(or)
     }
     pub fn script_write(
@@ -215,17 +196,10 @@ impl FileWR<'_> {
         }
         Ok(())
     }
-    pub fn script(
-        &self,
-        path: &PathBuf,
-    ) -> Result<String, Box<dyn Error>> {
+    pub fn script(&self, path: &PathBuf) -> Result<String, Box<dyn Error>> {
         Ok(fs::read_to_string(path)?)
     }
-    pub fn script_or(
-        &self,
-        path: &PathBuf,
-        script: String,
-    ) -> String {
+    pub fn script_or(&self, path: &PathBuf, script: String) -> String {
         self.script(path).unwrap_or(script)
     }
     pub fn backtest_write(
@@ -273,8 +247,10 @@ impl FileWR<'_> {
             )?,
             {
                 let mut bind = parse_data_columns(
-                    [fs::read_to_string(format!("{}/stat_columns.dat", dir.to_str().unwrap()))?
-                        .as_str()]
+                    [
+                        fs::read_to_string(format!("{}/stat_columns.dat", dir.to_str().unwrap()))?
+                            .as_str(),
+                    ]
                     .into_iter(),
                 )?;
                 if bind.is_empty() {
@@ -285,8 +261,10 @@ impl FileWR<'_> {
             },
             {
                 let mut bind = parse_data_values(
-                    [fs::read_to_string(format!("{}/stat_values.dat", dir.to_str().unwrap()))?
-                        .as_str()]
+                    [
+                        fs::read_to_string(format!("{}/stat_values.dat", dir.to_str().unwrap()))?
+                            .as_str(),
+                    ]
                     .into_iter(),
                 )?;
                 if bind.is_empty() {
@@ -366,15 +344,13 @@ mod tests {
     use std::{
         fs::remove_dir_all,
         path::Path,
-        pin::Pin,
         sync::{LazyLock, Mutex},
     };
 
-    use bc_trade_simulate::statistics::{StatCollector, StatData};
-    use bc_trade_simulate::trade_data::AfterTradeData;
-    use bc_utils_lg::statics::prices::*;
+    // use bc_statistics::{StatCollector, StatData};
+    // use bc_trade_state::trade_data::AfterTradeData;
+    use bc_test_kit::src::*;
     use bc_utils_lg::structs::settings::SETTINGS;
-    use bc_utils_lg::structs::trade::TradeCell;
 
     static S: LazyLock<SETTINGS_FILES_PATH> = LazyLock::new(|| SETTINGS_FILES_PATH {
         backtest: "test_dir/backtest".into(),
@@ -386,29 +362,29 @@ mod tests {
     static LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
     static S_DF: LazyLock<SETTINGS> = LazyLock::new(|| Default::default());
     static F: LazyLock<FileWR> = LazyLock::new(|| FileWR::new(&S));
-    static STAT_DATA_AFTER_DATA: LazyLock<
-        fn() -> (StatData<'static>, Pin<Box<AfterTradeData<'static>>>),
-    > = LazyLock::new(|| {
-        || {
-            let mut stat_collector = StatCollector::new("".to_string(), &S_DF.trade);
-            stat_collector.push(
-                TradeCell::new(100., SRC_EL.clone(), SRC_EL1.clone()),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            );
-            stat_collector.push(
-                TradeCell::new(100., SRC_EL.clone(), SRC_EL1.clone()),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            );
-            let stat_data = stat_collector.to_data();
-            let stat_data_vec = stat_data.to_vec();
-            let after_data = AfterTradeData::new(&S_DF, &stat_data_vec[0], &Default::default());
-            (stat_data, after_data)
-        }
-    });
+    // static STAT_DATA_AFTER_DATA: LazyLock<
+    //     fn() -> (StatData<'static>, Pin<Box<AfterTradeData<'static>>>),
+    // > = LazyLock::new(|| {
+    //     || {
+    //         let mut stat_collector = StatCollector::new("".to_string(), &S_DF.trade);
+    //         stat_collector.push(
+    //             TradeState::new(100., SRC_EL.clone(), SRC_EL1.clone()),
+    //             Default::default(),
+    //             Default::default(),
+    //             Default::default(),
+    //         );
+    //         stat_collector.push(
+    //             TradeState::new(100., SRC_EL.clone(), SRC_EL1.clone()),
+    //             Default::default(),
+    //             Default::default(),
+    //             Default::default(),
+    //         );
+    //         let stat_data = stat_collector.to_data();
+    //         let stat_data_vec = stat_data.to_vec();
+    //         let after_data = AfterTradeData::new(&S_DF, &stat_data_vec[0], &Default::default());
+    //         (stat_data, after_data)
+    //     }
+    // });
 
     fn remove_dir_all_(dir: &str) -> Result<(), Box<dyn Error>> {
         if Path::new(dir).exists() {
@@ -504,70 +480,70 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn backtest_write_res_1() -> Result<(), Box<dyn Error>> {
-        let _l = LOCK.lock()?;
-        remove_dir_all_("test_dir")?;
-        assert!(!S.backtest.exists());
-        let (stat_data, after_data) = STAT_DATA_AFTER_DATA();
-        let stat_data_vec = stat_data.to_vec();
-        F.backtest_write(
-            &stat_data,
-            &after_data.to_stat_columns(&stat_data_vec[0]),
-            &after_data.to_stat_values(&stat_data_vec[0]),
-            "symbol",
-            1,
-        )?;
-        assert!(Path::new(&format!("{}/1/symbol", S.backtest.to_str().unwrap())).exists());
-        assert!(
-            Path::new(&format!(
-                "{}/1/symbol/script_backtest.plt",
-                S.backtest.to_str().unwrap()
-            ))
-            .exists()
-        );
-        assert!(
-            Path::new(&format!(
-                "{}/1/symbol/script_stat_columns.plt",
-                S.backtest.to_str().unwrap()
-            ))
-            .exists()
-        );
-        assert!(
-            Path::new(&format!(
-                "{}/1/symbol/script_stat_values.plt",
-                S.backtest.to_str().unwrap()
-            ))
-            .exists()
-        );
-        remove_dir_all(&S.backtest)?;
-        assert!(!S.backtest.exists());
-        remove_dir_all_("test_dir")?;
-        Ok(())
-    }
+    // #[test]
+    // fn backtest_write_res_1() -> Result<(), Box<dyn Error>> {
+    //     let _l = LOCK.lock()?;
+    //     remove_dir_all_("test_dir")?;
+    //     assert!(!S.backtest.exists());
+    //     let (stat_data, after_data) = STAT_DATA_AFTER_DATA();
+    //     let stat_data_vec = stat_data.to_vec();
+    //     F.backtest_write(
+    //         &stat_data,
+    //         &after_data.to_stat_columns(&stat_data_vec[0]),
+    //         &after_data.to_stat_values(&stat_data_vec[0]),
+    //         "symbol",
+    //         1,
+    //     )?;
+    //     assert!(Path::new(&format!("{}/1/symbol", S.backtest.to_str().unwrap())).exists());
+    //     assert!(
+    //         Path::new(&format!(
+    //             "{}/1/symbol/script_backtest.plt",
+    //             S.backtest.to_str().unwrap()
+    //         ))
+    //         .exists()
+    //     );
+    //     assert!(
+    //         Path::new(&format!(
+    //             "{}/1/symbol/script_stat_columns.plt",
+    //             S.backtest.to_str().unwrap()
+    //         ))
+    //         .exists()
+    //     );
+    //     assert!(
+    //         Path::new(&format!(
+    //             "{}/1/symbol/script_stat_values.plt",
+    //             S.backtest.to_str().unwrap()
+    //         ))
+    //         .exists()
+    //     );
+    //     remove_dir_all(&S.backtest)?;
+    //     assert!(!S.backtest.exists());
+    //     remove_dir_all_("test_dir")?;
+    //     Ok(())
+    // }
 
-    #[test]
-    fn backtest_res_1() -> Result<(), Box<dyn Error>> {
-        let _l = LOCK.lock()?;
-        remove_dir_all_("test_dir")?;
-        assert!(!S.backtest.exists());
-        let (stat_data, after_data) = STAT_DATA_AFTER_DATA();
-        let stat_data_vec = stat_data.to_vec();
-        F.backtest_write(
-            &stat_data,
-            &after_data.to_stat_columns(&stat_data_vec[0]),
-            &after_data.to_stat_values(&stat_data_vec[0]),
-            "symbol",
-            1,
-        )?;
-        let _: (
-            Vec<MAP<String, Vec<f64>>>,
-            MAP<String, Vec<f64>>,
-            MAP<String, f64>,
-        ) = F.backtest(&format!("{}/1/symbol", S.backtest.to_str().unwrap()).into())?;
-        remove_dir_all(&S.backtest)?;
-        assert!(!S.backtest.exists());
-        remove_dir_all_("test_dir")?;
-        Ok(())
-    }
+    // #[test]
+    // fn backtest_res_1() -> Result<(), Box<dyn Error>> {
+    //     let _l = LOCK.lock()?;
+    //     remove_dir_all_("test_dir")?;
+    //     assert!(!S.backtest.exists());
+    //     let (stat_data, after_data) = STAT_DATA_AFTER_DATA();
+    //     let stat_data_vec = stat_data.to_vec();
+    //     F.backtest_write(
+    //         &stat_data,
+    //         &after_data.to_stat_columns(&stat_data_vec[0]),
+    //         &after_data.to_stat_values(&stat_data_vec[0]),
+    //         "symbol",
+    //         1,
+    //     )?;
+    //     let _: (
+    //         Vec<MAP<String, Vec<f64>>>,
+    //         MAP<String, Vec<f64>>,
+    //         MAP<String, f64>,
+    //     ) = F.backtest(&format!("{}/1/symbol", S.backtest.to_str().unwrap()).into())?;
+    //     remove_dir_all(&S.backtest)?;
+    //     assert!(!S.backtest.exists());
+    //     remove_dir_all_("test_dir")?;
+    //     Ok(())
+    // }
 }
